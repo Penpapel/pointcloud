@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Simplified Point Cloud App</title>
+  <!-- Include Three.js from CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <style>
+    body { margin: 0; overflow: hidden; }
+    #three-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+  </style>
+</head>
+<body>
+
+  <!-- Hidden video element to capture camera feed -->
+  <video id="video" width="320" height="240" autoplay playsinline style="display: none;"></video>
+  <!-- Canvas for capturing frame data -->
+  <canvas id="canvas" width="320" height="240" style="display: none;"></canvas>
+  <!-- Container for the Three.js renderer -->
+  <div id="three-container"></div>
+
+  <script>
+    // Get references to DOM elements
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+
+    // Set up Three.js scene
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: false });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.getElementById('three-container').appendChild(renderer.domElement);
+
+    // Adjust camera position
+    camera.position.z = 500;
+
+    // Function to start video capture
+    function startVideo() {
+      const constraints = {
+        video: {
+          width: { ideal: 320 },
+          height: { ideal: 240 },
+          facingMode: 'environment', // Use 'user' for the front camera
+        },
+      };
+
+      navigator.mediaDevices.getUserMedia(constraints)
+        .then((stream) => {
+          video.srcObject = stream;
+          video.onloadedmetadata = () => {
+            processFrame();
+          };
+        })
+        .catch((err) => {
+          console.error('Error accessing camera: ', err);
+        });
+    }
+
+    // Function to process each video frame
+    function processFrame() {
+      // Draw the current frame to the canvas
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+      // Simplify depth estimation
+      const positions = [];
+      const colors = [];
+      const sampleRate = 4;
+
+      for (let y = 0; y < canvas.height; y += sampleRate) {
+        for (let x = 0; x < canvas.width; x += sampleRate) {
+          const index = (y * canvas.width + x) * 4;
+          const r = imageData.data[index];
+          const g = imageData.data[index + 1];
+          const b = imageData.data[index + 2];
+          const brightness = (r + g + b) / 3;
+          const depth = (brightness / 255) * 100; // Scale depth value
+
+          // Convert 2D coordinates to 3D point
+          positions.push(x - canvas.width / 2);
+          positions.push(y - canvas.height / 2);
+          positions.push(-depth);
+
+          // Add color information
+          colors.push(r / 255, g / 255, b / 255);
+        }
+      }
+
+      // Create geometry and material
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+      const material = new THREE.PointsMaterial({ size: 2, vertexColors: true });
+
+      // Create point cloud and add to scene
+      const points = new THREE.Points(geometry, material);
+      scene.clear(); // Remove previous points
+      scene.add(points);
+
+      // Render the scene
+      renderer.render(scene, camera);
+
+      // Request the next frame
+      requestAnimationFrame(processFrame);
+    }
+
+    // Start the video and processing
+    startVideo();
+
+    // Handle window resize
+    window.addEventListener('resize', () => {
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+    });
+  </script>
+
+</body>
+</html>
