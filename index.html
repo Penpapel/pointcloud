@@ -38,22 +38,22 @@
 
     // Set up Three.js scene
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 1, 1000);
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 1, 5000);
     const renderer = new THREE.WebGLRenderer({ antialias: false });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(window.devicePixelRatio);
     document.getElementById('three-container').appendChild(renderer.domElement);
 
     // Adjust camera position
-    camera.position.z = 500;
+    camera.position.z = 2000;
 
     // Sample rate for point cloud
-    const sampleRate = 12; // Adjust as necessary
+    const sampleRate = 8; // Adjust as necessary
 
     // Initialize variables
     let positions, colors, geometry, material, points;
     let lastTime = 0;
-    const fps = 6; // Target frames per second
+    const fps = 15; // Target frames per second
 
     // Function to start video capture
     function startVideo() {
@@ -94,7 +94,7 @@
       geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
       geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
-      material = new THREE.PointsMaterial({ size: 4, vertexColors: true });
+      material = new THREE.PointsMaterial({ size: 2, vertexColors: true });
 
       points = new THREE.Points(geometry, material);
       scene.add(points);
@@ -102,6 +102,8 @@
 
     // Function to process each video frame
     function processFrame(time) {
+      if (!time) time = performance.now();
+
       if (time - lastTime >= 1000 / fps) {
         lastTime = time;
 
@@ -118,12 +120,12 @@
             const g = imageData.data[index + 1];
             const b = imageData.data[index + 2];
             const brightness = (r + g + b) / 3;
-            const depth = (brightness / 255) * 100; // Scale depth value
+            const depth = ((255 - brightness) / 255) * 2000; // Map brightness to depth
 
             // Convert 2D coordinates to 3D point
-            positions[i] = x - canvas.width / 2;
-            positions[i + 1] = y - canvas.height / 2;
-            positions[i + 2] = -depth;
+            positions[i] = (x - canvas.width / 2) * 2; // Scale x
+            positions[i + 1] = -(y - canvas.height / 2) * 2; // Scale y and invert
+            positions[i + 2] = -depth; // Negative depth to move points away
 
             // Add color information
             colors[i] = r / 255;
@@ -149,7 +151,7 @@
     // Start the application
     function startApp() {
       initPointCloud();
-      processFrame();
+      requestAnimationFrame(processFrame); // Start the animation loop properly
     }
 
     // Handle window resize
