@@ -2,186 +2,155 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Depth-Based Point Cloud App</title>
-  <!-- Include Three.js from CDN -->
+  <title>Depth Estimation with TensorFlow.js</title>
+  <!-- Include TensorFlow.js and Three.js -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.20.0/dist/tf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <style>
-    body {
-      margin: 0;
-      overflow: hidden;
-    }
-
-    #three-container {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      overflow: hidden;
-    }
+    body { margin: 0; overflow: hidden; }
+    #three-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
   </style>
 </head>
 <body>
 
-  <!-- Hidden video element to capture camera feed -->
+  <!-- Hidden video and canvas elements -->
   <video id="video" autoplay playsinline style="display: none;"></video>
-  <!-- Canvas for capturing frame data -->
   <canvas id="canvas" style="display: none;"></canvas>
-  <!-- Container for the Three.js renderer -->
+  <!-- Three.js container -->
   <div id="three-container"></div>
 
   <script>
-    // Get references to DOM elements
+    let model;
     const video = document.getElementById('video');
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
 
-    // Set up Three.js scene
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(
-      75,
-      window.innerWidth / window.innerHeight,
-      1,
-      5000
-    );
-    const renderer = new THREE.WebGLRenderer({ antialias: false });
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 1, 5000);
+    camera.position.z = 1000;
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(window.devicePixelRatio);
     document.getElementById('three-container').appendChild(renderer.domElement);
 
-    // Adjust camera position
-    camera.position.z = 1000;
+    const geometry = new THREE.BufferGeometry();
+    const material = new THREE.PointsMaterial({ size: 2, vertexColors: true });
+    const points = new THREE.Points(geometry, material);
+    scene.add(points);
 
-    // Initialize variables
-    let positions, colors, geometry, material, points;
-    let lastTime = 0;
-    const fps = 15; // Target frames per second
+    async function loadModel() {
+      tf.setBackend('webgl');
+      await tf.ready();
+      model = await tf.loadGraphModel('path/to/model.json');
+    }
 
-    // Function to start video capture
     function startVideo() {
-      const constraints = {
-        video: {
-          width: { ideal: 640 },
-          height: { ideal: 480 },
-          facingMode: 'environment',
-        },
-      };
-
-      navigator.mediaDevices
-        .getUserMedia(constraints)
-        .then((stream) => {
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+        .then(stream => {
           video.srcObject = stream;
           video.onloadedmetadata = () => {
+            // Set canvas dimensions to match the video
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
             startApp();
           };
         })
-        .catch((err) => {
+        .catch(err => {
           console.error('Error accessing camera: ', err);
         });
     }
 
-    // Initialize point cloud
-    function initPointCloud() {
-      // Set canvas dimensions
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-
-      // Limit the number of points to 100
-      const numPoints = 500;
-
-      positions = new Float32Array(numPoints * 3);
-      colors = new Float32Array(numPoints * 3);
-
-      geometry = new THREE.BufferGeometry();
-      geometry.setAttribute(
-        'position',
-        new THREE.BufferAttribute(positions, 3)
-      );
-      geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-
-      material = new THREE.PointsMaterial({
-        size: 40, // Increase point size for visibility
-        vertexColors: true,
-      });
-
-      points = new THREE.Points(geometry, material);
-      scene.add(points);
+    function startApp() {
+      processFrame();
     }
 
-    // Function to process each video frame
-    function processFrame(time) {
-      if (!time) time = performance.now();
+    async function processFrame() {
+      // Draw the current frame to the canvas
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const inputImage = tf.browser.fromPixels(canvas);
 
-      if (time - lastTime >= 1000 / fps) {
-        lastTime = time;
+      // Estimate depth
+      const depthData = await estimateDepth(inputImage);
 
-        // Draw the current frame to the canvas
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      // Generate and render the point cloud
+      generatePointCloud(depthData, imageData);
+      renderer.render(scene, camera);
 
-        // Sample points randomly
-        const numPoints = 100;
-        const totalPixels = canvas.width * canvas.height;
-        const step = Math.floor(totalPixels / numPoints);
-
-        let i = 0; // Index for positions and colors arrays
-
-        for (let count = 0; count < numPoints; count++) {
-          const pixelIndex = count * step;
-          const x = pixelIndex % canvas.width;
-          const y = Math.floor(pixelIndex / canvas.width);
-
-          const index = (y * canvas.width + x) * 4;
-          const r = imageData.data[index];
-          const g = imageData.data[index + 1];
-          const b = imageData.data[index + 2];
-          const brightness = (r + g + b) / 3;
-
-          // Compute depth based on brightness (simple depth estimation)
-          const depth = ((255 - brightness) / 255) * 1000;
-
-          // Convert 2D coordinates to 3D point
-          positions[i] = x - canvas.width / 2;
-          positions[i + 1] = -(y - canvas.height / 2); // Invert y-axis
-          positions[i + 2] = -depth; // Negative depth to move points away
-
-          // Add color information
-          colors[i] = r / 255;
-          colors[i + 1] = g / 255;
-          colors[i + 2] = b / 255;
-
-          i += 3;
-        }
-
-        // Flag attributes as needing update
-        geometry.attributes.position.needsUpdate = true;
-        geometry.attributes.color.needsUpdate = true;
-
-        // Render the scene
-        renderer.render(scene, camera);
-      }
+      // Clean up tensors
+      inputImage.dispose();
 
       // Request the next frame
       requestAnimationFrame(processFrame);
     }
 
-    // Start the application
-    function startApp() {
-      initPointCloud();
-      requestAnimationFrame(processFrame);
+    function preprocessImage(image) {
+      const resized = tf.image.resizeBilinear(image, [256, 256]);
+      const normalized = resized.div(255);
+      const batched = normalized.expandDims(0);
+      resized.dispose();
+      normalized.dispose();
+      return batched;
     }
 
+    async function estimateDepth(inputImage) {
+      const preprocessed = preprocessImage(inputImage);
+      const depthMap = await model.predict(preprocessed);
+      const depthData = depthMap.squeeze().dataSync();
+      preprocessed.dispose();
+      depthMap.dispose();
+      return depthData;
+    }
+
+    function generatePointCloud(depthData, imageData) {
+      const positions = [];
+      const colors = [];
+      const width = 256;
+      const height = 256;
+      const samplingRate = 4;
+
+      for (let y = 0; y < height; y += samplingRate) {
+        for (let x = 0; x < width; x += samplingRate) {
+          const index = y * width + x;
+          const depth = depthData[index];
+
+          const z = depth * 500; // Scale depth values
+
+          const pixelX = x * (canvas.width / width);
+          const pixelY = y * (canvas.height / height);
+          const pixelIndex = (Math.floor(pixelY) * canvas.width + Math.floor(pixelX)) * 4;
+          const r = imageData.data[pixelIndex];
+          const g = imageData.data[pixelIndex + 1];
+          const b = imageData.data[pixelIndex + 2];
+
+          positions.push(pixelX - canvas.width / 2);
+          positions.push(-(pixelY - canvas.height / 2));
+          positions.push(-z);
+
+          colors.push(r / 255);
+          colors.push(g / 255);
+          colors.push(b / 255);
+        }
+      }
+
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+
+      geometry.attributes.position.needsUpdate = true;
+      geometry.attributes.color.needsUpdate = true;
+    }
+
+    window.addEventListener('load', async () => {
+      await loadModel();
+      startVideo();
+    });
+
     // Handle window resize
-    function onWindowResize() {
+    window.addEventListener('resize', () => {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
-    }
-
-    window.addEventListener('resize', onWindowResize, false);
-
-    // Start the video and processing
-    startVideo();
+    });
   </script>
+
 </body>
 </html>
