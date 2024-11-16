@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Simulated Point Cloud App</title>
+  <title>Depth-Based Point Cloud App</title>
   <!-- Include Three.js from CDN -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <style>
@@ -38,7 +38,12 @@
 
     // Set up Three.js scene
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 1, 5000);
+    const camera = new THREE.PerspectiveCamera(
+      75,
+      window.innerWidth / window.innerHeight,
+      1,
+      5000
+    );
     const renderer = new THREE.WebGLRenderer({ antialias: false });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(window.devicePixelRatio);
@@ -46,10 +51,6 @@
 
     // Adjust camera position
     camera.position.z = 1000;
-
-    // Sample rate for point cloud
-    const sampleRate = 8; // Adjust as necessary
-    const depthRange = 500; // Controls the depth variation
 
     // Initialize variables
     let positions, colors, geometry, material, points;
@@ -60,13 +61,14 @@
     function startVideo() {
       const constraints = {
         video: {
-          width: { ideal: window.innerWidth },
-          height: { ideal: window.innerHeight },
+          width: { ideal: 640 },
+          height: { ideal: 480 },
           facingMode: 'environment',
         },
       };
 
-      navigator.mediaDevices.getUserMedia(constraints)
+      navigator.mediaDevices
+        .getUserMedia(constraints)
         .then((stream) => {
           video.srcObject = stream;
           video.onloadedmetadata = () => {
@@ -84,20 +86,21 @@
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
 
-      const numPointsX = Math.floor(canvas.width / sampleRate);
-      const numPointsY = Math.floor(canvas.height / sampleRate);
-      const numPoints = numPointsX * numPointsY;
+      // Limit the number of points to 100
+      const numPoints = 100;
 
       positions = new Float32Array(numPoints * 3);
       colors = new Float32Array(numPoints * 3);
 
       geometry = new THREE.BufferGeometry();
-      geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      geometry.setAttribute(
+        'position',
+        new THREE.BufferAttribute(positions, 3)
+      );
       geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
-      // Use PointsMaterial instead of ShaderMaterial
       material = new THREE.PointsMaterial({
-        size: 2,
+        size: 20, // Increase point size for visibility
         vertexColors: true,
       });
 
@@ -116,39 +119,43 @@
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
+        // Sample points randomly
+        const numPoints = 100;
+        const totalPixels = canvas.width * canvas.height;
+        const step = Math.floor(totalPixels / numPoints);
+
         let i = 0; // Index for positions and colors arrays
 
-        for (let y = 0; y < canvas.height; y += sampleRate) {
-          for (let x = 0; x < canvas.width; x += sampleRate) {
-            const index = (y * canvas.width + x) * 4;
-            const r = imageData.data[index];
-            const g = imageData.data[index + 1];
-            const b = imageData.data[index + 2];
-            const brightness = (r + g + b) / 3;
+        for (let count = 0; count < numPoints; count++) {
+          const pixelIndex = count * step;
+          const x = pixelIndex % canvas.width;
+          const y = Math.floor(pixelIndex / canvas.width);
 
-            // Simulate depth with random jitter
-            const depth = (Math.random() - 0.5) * depthRange;
+          const index = (y * canvas.width + x) * 4;
+          const r = imageData.data[index];
+          const g = imageData.data[index + 1];
+          const b = imageData.data[index + 2];
+          const brightness = (r + g + b) / 3;
 
-            // Convert 2D coordinates to 3D point
-            positions[i] = x - canvas.width / 2;
-            positions[i + 1] = -(y - canvas.height / 2); // Invert y-axis
-            positions[i + 2] = depth;
+          // Compute depth based on brightness (simple depth estimation)
+          const depth = ((255 - brightness) / 255) * 1000;
 
-            // Add color information
-            colors[i] = r / 255;
-            colors[i + 1] = g / 255;
-            colors[i + 2] = b / 255;
+          // Convert 2D coordinates to 3D point
+          positions[i] = x - canvas.width / 2;
+          positions[i + 1] = -(y - canvas.height / 2); // Invert y-axis
+          positions[i + 2] = -depth; // Negative depth to move points away
 
-            i += 3;
-          }
+          // Add color information
+          colors[i] = r / 255;
+          colors[i + 1] = g / 255;
+          colors[i + 2] = b / 255;
+
+          i += 3;
         }
 
         // Flag attributes as needing update
         geometry.attributes.position.needsUpdate = true;
         geometry.attributes.color.needsUpdate = true;
-
-        // Optional: Rotate the scene for a dynamic effect
-        scene.rotation.y += 0.001;
 
         // Render the scene
         renderer.render(scene, camera);
@@ -176,6 +183,5 @@
     // Start the video and processing
     startVideo();
   </script>
-
 </body>
 </html>
