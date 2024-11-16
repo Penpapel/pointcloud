@@ -3,12 +3,23 @@
 <head>
   <meta charset="UTF-8">
   <title>Depth Estimation with TensorFlow.js</title>
-  <!-- Include TensorFlow.js and Three.js -->
+  <!-- Include TensorFlow.js and Depth Estimation Model -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.20.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/depth-estimation"></script>
+  <!-- Include Three.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <style>
     body { margin: 0; overflow: hidden; }
     #three-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+    #loading {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-family: Arial, sans-serif;
+      font-size: 18px;
+      color: #333;
+    }
   </style>
 </head>
 <body>
@@ -18,6 +29,11 @@
   <canvas id="canvas" style="display: none;"></canvas>
   <!-- Three.js container -->
   <div id="three-container"></div>
+
+  <!-- Loading indicator -->
+  <div id="loading">
+    Loading model, please wait...
+  </div>
 
   <script>
     let model;
@@ -38,9 +54,16 @@
     scene.add(points);
 
     async function loadModel() {
-      tf.setBackend('webgl');
-      await tf.ready();
-      model = await tf.loadGraphModel('path/to/model.json');
+      try {
+        model = await depthEstimation.load({
+          modelType: 'lite', // Use 'lite' for faster loading and better performance on mobile
+        });
+        document.getElementById('loading').style.display = 'none';
+        startVideo();
+      } catch (error) {
+        console.error('Error loading the model:', error);
+        alert('Failed to load the depth estimation model. Please try again later.');
+      }
     }
 
     function startVideo() {
@@ -56,6 +79,7 @@
         })
         .catch(err => {
           console.error('Error accessing camera: ', err);
+          alert('Error accessing camera: ' + err.message);
         });
     }
 
@@ -66,64 +90,54 @@
     async function processFrame() {
       // Draw the current frame to the canvas
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+      // Get the image data as a tensor
       const inputImage = tf.browser.fromPixels(canvas);
 
       // Estimate depth
-      const depthData = await estimateDepth(inputImage);
+      const depthMap = await model.predict(inputImage);
+
+      // Convert depth map to array
+      const depthData = depthMap.dataSync();
 
       // Generate and render the point cloud
-      generatePointCloud(depthData, imageData);
-      renderer.render(scene, camera);
+      generatePointCloud(depthData, inputImage, depthMap.shape);
 
       // Clean up tensors
       inputImage.dispose();
+      depthMap.dispose();
+
+      // Render the scene
+      renderer.render(scene, camera);
 
       // Request the next frame
       requestAnimationFrame(processFrame);
     }
 
-    function preprocessImage(image) {
-      const resized = tf.image.resizeBilinear(image, [256, 256]);
-      const normalized = resized.div(255);
-      const batched = normalized.expandDims(0);
-      resized.dispose();
-      normalized.dispose();
-      return batched;
-    }
-
-    async function estimateDepth(inputImage) {
-      const preprocessed = preprocessImage(inputImage);
-      const depthMap = await model.predict(preprocessed);
-      const depthData = depthMap.squeeze().dataSync();
-      preprocessed.dispose();
-      depthMap.dispose();
-      return depthData;
-    }
-
-    function generatePointCloud(depthData, imageData) {
+    function generatePointCloud(depthData, inputImage, depthShape) {
       const positions = [];
       const colors = [];
-      const width = 256;
-      const height = 256;
-      const samplingRate = 4;
+
+      const [height, width] = depthShape;
+      const samplingRate = 4; // Adjust as needed
 
       for (let y = 0; y < height; y += samplingRate) {
         for (let x = 0; x < width; x += samplingRate) {
           const index = y * width + x;
           const depth = depthData[index];
 
-          const z = depth * 500; // Scale depth values
+          // Map depth to a suitable range
+          const z = depth * 1000;
 
-          const pixelX = x * (canvas.width / width);
-          const pixelY = y * (canvas.height / height);
-          const pixelIndex = (Math.floor(pixelY) * canvas.width + Math.floor(pixelX)) * 4;
-          const r = imageData.data[pixelIndex];
-          const g = imageData.data[pixelIndex + 1];
-          const b = imageData.data[pixelIndex + 2];
+          // Get the color from the input image tensor
+          const pixel = inputImage.slice([y, x, 0], [1, 1, 3]).dataSync();
 
-          positions.push(pixelX - canvas.width / 2);
-          positions.push(-(pixelY - canvas.height / 2));
+          const r = pixel[0];
+          const g = pixel[1];
+          const b = pixel[2];
+
+          positions.push(x - width / 2);
+          positions.push(-(y - height / 2));
           positions.push(-z);
 
           colors.push(r / 255);
@@ -141,7 +155,6 @@
 
     window.addEventListener('load', async () => {
       await loadModel();
-      startVideo();
     });
 
     // Handle window resize
