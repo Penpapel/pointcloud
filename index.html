@@ -87,7 +87,7 @@
       canvas.height = video.videoHeight;
 
       // Limit the number of points to 100
-      const numPoints = 100;
+      const numPoints = 500;
 
       positions = new Float32Array(numPoints * 3);
       colors = new Float32Array(numPoints * 3);
@@ -100,7 +100,7 @@
       geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
       material = new THREE.PointsMaterial({
-        size: 20, // Increase point size for visibility
+        size: 40, // Increase point size for visibility
         vertexColors: true,
       });
 
