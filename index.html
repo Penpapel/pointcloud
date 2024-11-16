@@ -52,7 +52,7 @@
     const depthRange = 200; // Controls the depth variation
 
     // Initialize variables
-    let positions, colors, sizes, geometry, material, points;
+    let positions, colors, geometry, material, points;
     let lastTime = 0;
     const fps = 15; // Target frames per second
 
@@ -90,37 +90,15 @@
 
       positions = new Float32Array(numPoints * 3);
       colors = new Float32Array(numPoints * 3);
-      sizes = new Float32Array(numPoints);
 
       geometry = new THREE.BufferGeometry();
       geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
       geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-      geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
 
-      // Use ShaderMaterial to allow point size variation
-      material = new THREE.ShaderMaterial({
+      // Use PointsMaterial instead of ShaderMaterial
+      material = new THREE.PointsMaterial({
+        size: 2,
         vertexColors: true,
-        uniforms: {
-          pointTexture: { value: new THREE.TextureLoader().load('https://threejs.org/examples/textures/sprites/disc.png') },
-        },
-        vertexShader: `
-          attribute float size;
-          varying vec3 vColor;
-          void main() {
-            vColor = color;
-            vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-            gl_PointSize = size * (300.0 / -mvPosition.z);
-            gl_Position = projectionMatrix * mvPosition;
-          }
-        `,
-        fragmentShader: `
-          uniform sampler2D pointTexture;
-          varying vec3 vColor;
-          void main() {
-            gl_FragColor = vec4(vColor, 1.0) * texture2D(pointTexture, gl_PointCoord);
-          }
-        `,
-        transparent: true,
       });
 
       points = new THREE.Points(geometry, material);
@@ -138,7 +116,7 @@
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
-        let i = 0; // Index for positions, colors, and sizes arrays
+        let i = 0; // Index for positions and colors arrays
 
         for (let y = 0; y < canvas.height; y += sampleRate) {
           for (let x = 0; x < canvas.width; x += sampleRate) {
@@ -161,9 +139,6 @@
             colors[i + 1] = g / 255;
             colors[i + 2] = b / 255;
 
-            // Set point size based on brightness
-            sizes[i / 3] = (brightness / 255) * 5 + 1;
-
             i += 3;
           }
         }
@@ -171,9 +146,8 @@
         // Flag attributes as needing update
         geometry.attributes.position.needsUpdate = true;
         geometry.attributes.color.needsUpdate = true;
-        geometry.attributes.size.needsUpdate = true;
 
-        // Optional: Rotate the camera or the scene for a dynamic effect
+        // Optional: Rotate the scene for a dynamic effect
         scene.rotation.y += 0.001;
 
         // Render the scene
