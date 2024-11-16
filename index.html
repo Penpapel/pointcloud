@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Real-Time Point Cloud App</title>
+  <title>Simulated Point Cloud App</title>
   <!-- Include Three.js from CDN -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <style>
@@ -45,13 +45,14 @@
     document.getElementById('three-container').appendChild(renderer.domElement);
 
     // Adjust camera position
-    camera.position.z = 2000;
+    camera.position.z = 1000;
 
     // Sample rate for point cloud
-    const sampleRate = 8; // Adjust as necessary
+    const sampleRate = 4; // Adjust as necessary
+    const depthRange = 200; // Controls the depth variation
 
     // Initialize variables
-    let positions, colors, geometry, material, points;
+    let positions, colors, sizes, geometry, material, points;
     let lastTime = 0;
     const fps = 15; // Target frames per second
 
@@ -89,12 +90,38 @@
 
       positions = new Float32Array(numPoints * 3);
       colors = new Float32Array(numPoints * 3);
+      sizes = new Float32Array(numPoints);
 
       geometry = new THREE.BufferGeometry();
       geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
       geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
 
-      material = new THREE.PointsMaterial({ size: 2, vertexColors: true });
+      // Use ShaderMaterial to allow point size variation
+      material = new THREE.ShaderMaterial({
+        vertexColors: true,
+        uniforms: {
+          pointTexture: { value: new THREE.TextureLoader().load('https://threejs.org/examples/textures/sprites/disc.png') },
+        },
+        vertexShader: `
+          attribute float size;
+          varying vec3 vColor;
+          void main() {
+            vColor = color;
+            vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+            gl_PointSize = size * (300.0 / -mvPosition.z);
+            gl_Position = projectionMatrix * mvPosition;
+          }
+        `,
+        fragmentShader: `
+          uniform sampler2D pointTexture;
+          varying vec3 vColor;
+          void main() {
+            gl_FragColor = vec4(vColor, 1.0) * texture2D(pointTexture, gl_PointCoord);
+          }
+        `,
+        transparent: true,
+      });
 
       points = new THREE.Points(geometry, material);
       scene.add(points);
@@ -111,7 +138,7 @@
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
-        let i = 0; // Index for positions and colors arrays
+        let i = 0; // Index for positions, colors, and sizes arrays
 
         for (let y = 0; y < canvas.height; y += sampleRate) {
           for (let x = 0; x < canvas.width; x += sampleRate) {
@@ -120,17 +147,22 @@
             const g = imageData.data[index + 1];
             const b = imageData.data[index + 2];
             const brightness = (r + g + b) / 3;
-            const depth = ((255 - brightness) / 255) * 2000; // Map brightness to depth
+
+            // Simulate depth with random jitter
+            const depth = (Math.random() - 0.5) * depthRange;
 
             // Convert 2D coordinates to 3D point
-            positions[i] = (x - canvas.width / 2) * 2; // Scale x
-            positions[i + 1] = -(y - canvas.height / 2) * 2; // Scale y and invert
-            positions[i + 2] = -depth; // Negative depth to move points away
+            positions[i] = x - canvas.width / 2;
+            positions[i + 1] = -(y - canvas.height / 2); // Invert y-axis
+            positions[i + 2] = depth;
 
             // Add color information
             colors[i] = r / 255;
             colors[i + 1] = g / 255;
             colors[i + 2] = b / 255;
+
+            // Set point size based on brightness
+            sizes[i / 3] = (brightness / 255) * 5 + 1;
 
             i += 3;
           }
@@ -139,6 +171,10 @@
         // Flag attributes as needing update
         geometry.attributes.position.needsUpdate = true;
         geometry.attributes.color.needsUpdate = true;
+        geometry.attributes.size.needsUpdate = true;
+
+        // Optional: Rotate the camera or the scene for a dynamic effect
+        scene.rotation.y += 0.001;
 
         // Render the scene
         renderer.render(scene, camera);
@@ -151,7 +187,7 @@
     // Start the application
     function startApp() {
       initPointCloud();
-      requestAnimationFrame(processFrame); // Start the animation loop properly
+      requestAnimationFrame(processFrame);
     }
 
     // Handle window resize
