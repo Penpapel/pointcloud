@@ -48,12 +48,12 @@
     camera.position.z = 500;
 
     // Sample rate for point cloud
-    const sampleRate = 8; // Adjust as necessary
+    const sampleRate = 12; // Adjust as necessary
 
     // Initialize variables
     let positions, colors, geometry, material, points;
     let lastTime = 0;
-    const fps = 15; // Target frames per second
+    const fps = 6; // Target frames per second
 
     // Function to start video capture
     function startVideo() {
@@ -94,7 +94,7 @@
       geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
       geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
-      material = new THREE.PointsMaterial({ size: 2, vertexColors: true });
+      material = new THREE.PointsMaterial({ size: 4, vertexColors: true });
 
       points = new THREE.Points(geometry, material);
       scene.add(points);
